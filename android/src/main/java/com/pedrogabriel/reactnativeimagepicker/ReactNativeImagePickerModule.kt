@@ -44,7 +44,11 @@ class ReactNativeImagePickerModule(reactContext: ReactApplicationContext) :
             type = "image/*"
             addCategory(Intent.CATEGORY_OPENABLE)
         }
-
+//      val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+//        type = "*/*" // tipo genérico
+//        addCategory(Intent.CATEGORY_OPENABLE)
+//        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+//      }
         try {
             activity.startActivityForResult(Intent.createChooser(intent, "Selecionar arquivo"), REQUEST_CODE_PICK)
         } catch (e: Exception) {
