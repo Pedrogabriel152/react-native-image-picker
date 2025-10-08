@@ -12,6 +12,8 @@ internal class CustomMediaMetadataRetriever : MediaMetadataRetriever(), AutoClos
 }
 
 class VideoMetadata : Metadata() {
+  private var duration: Int = 0
+  private var bitrate: Int = 0
 
   override fun getDateTime(): String? {
     TODO("Not yet implemented")
