@@ -2,6 +2,7 @@ package com.pedrogabriel.reactnativeimagepicker.utils
 
 import com.facebook.react.bridge.ReadableMap
 import android.text.TextUtils
+import com.pedrogabriel.reactnativeimagepicker.utils.Utils
 
 class Options(options: ReadableMap) {
   var selectionLimit: Int = 0
@@ -20,13 +21,30 @@ class Options(options: ReadableMap) {
   var restrictMimeTypes: Array<String?>? = null
 
   init {
-        mediaType = options.getString("mediaType")
-        restrictMimeTypes = options.getArray("restrictMimeTypes")?.toArrayList()?.map { it.toString() }?.toTypedArray()
-        selectionLimit = options.getInt("selectionLimit")
-        includeBase64 = options.getBoolean("includeBase64")
-        includeExtra = options.getBoolean("includeExtra")
+        mediaType = options.getString("mediaType") ?: Utils.MEDIA_TYPE_PHOTO
+        restrictMimeTypes = options.getArray("restrictMimeTypes")?.toArrayList()?.map { it.toString() }?.toTypedArray() ?: null
+        selectionLimit = if (options.hasKey("selectionLimit")) {
+            options.getInt("selectionLimit")
+        } else {
+          1 
+        }
+        includeBase64 = if (options.hasKey("includeBase64")) {
+          options.getBoolean("includeBase64")
+        } else {
+          false
+        }
+        includeExtra = if (options.hasKey("includeExtra")) {
+          options.getBoolean("includeExtra")
+        } else {
+          false
+        }
 
-        val videoQualityString = options.getString("videoQuality")
+        val videoQualityString =  if (options.hasKey("videoQuality")) {
+          options.getString("videoQuality")
+        }else {
+          "low"
+        }
+        
         if (!videoQualityString.isNullOrEmpty() && videoQualityString.lowercase() != "high") {
           videoQuality = 0
         }
@@ -35,7 +53,12 @@ class Options(options: ReadableMap) {
           conversionQuality = (options.getDouble("conversionQuality") * 100).toInt()
         }
 
-        val assetRepresentationMode = options.getString("assetRepresentationMode")
+        val assetRepresentationMode = if (options.hasKey("assetRepresentationMode")) {
+          options.getString("assetRepresentationMode")
+        }else {
+          null
+        }
+        
         if (!assetRepresentationMode.isNullOrEmpty() && assetRepresentationMode.lowercase() == "current") {
           convertToJpeg = false
         }
@@ -45,9 +68,17 @@ class Options(options: ReadableMap) {
         }
 
         quality = (options.getDouble("quality") * 100).toInt()
-        maxHeight = options.getInt("maxHeight")
-        maxWidth = options.getInt("maxWidth")
-        saveToPhotos = options.getBoolean("saveToPhotos")
-        durationLimit = options.getInt("durationLimit")
+        maxHeight = options.getInt("maxHeight") ?: 2000
+        maxWidth = options.getInt("maxWidth") ?: 2000
+        saveToPhotos = if (options.hasKey("saveToPhotos")) {
+          options.getBoolean("saveToPhotos")
+        } else {
+          false
+        }
+        durationLimit = if(options.hasKey("durationLimit")) {
+          options.getInt("durationLimit")
+        } else {
+          0
+        }
   }
 }

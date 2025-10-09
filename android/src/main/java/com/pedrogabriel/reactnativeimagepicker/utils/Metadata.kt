@@ -11,8 +11,8 @@ import java.util.Locale;
 
 abstract class Metadata {
   protected var datetime: String? = null
-  protected var height: Int = 0
-  protected var width: Int = 0
+  protected var heightData: Int = 0
+  protected var widthData: Int = 0
 
   abstract fun getDateTime(): String?
 

@@ -14,3 +14,7 @@ export function multiply(a: number, b: number): number {
 export function launchImageLibrary(options: LaunchOptions = {}): Promise<any> {
   return ReactNativeImagePicker.launchImageLibrary(options);
 }
+
+export function launchCamera(options: LaunchOptions = {}): Promise<any> {
+  return ReactNativeImagePicker.launchCamera(options);
+}

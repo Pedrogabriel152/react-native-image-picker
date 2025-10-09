@@ -1,6 +1,6 @@
 {
   "name": "@pedro.gabriel/react-native-image-picker",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "react-native-image-picker",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",

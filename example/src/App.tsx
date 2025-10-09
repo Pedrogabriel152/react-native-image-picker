@@ -1,5 +1,8 @@
 import { Text, View, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import { launchImageLibrary } from '@pedro.gabriel/react-native-image-picker';
+import {
+  launchImageLibrary,
+  launchCamera,
+} from '@pedro.gabriel/react-native-image-picker';
 import { getLatLong } from '@pedro.gabriel/react-native-exif';
 import { useState } from 'react';
 import { Button } from './Button';
@@ -18,6 +21,7 @@ async function requestPermissions() {
       PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
       PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+      PermissionsAndroid.PERMISSIONS.CAMERA,
     ]);
 
     if (granted) {
@@ -49,23 +53,42 @@ export default function App() {
     //   return;
     // }
     console.log('selectFile');
-    let result = await launchImageLibrary({
+    // let result = await launchImageLibrary({
+    //   mediaType: 'photo',
+    //   maxWidth: MAX_SIZE,
+    //   maxHeight: MAX_SIZE,
+    //   quality: 1,
+    // });
+
+    let result = await launchCamera({
       mediaType: 'photo',
       maxWidth: MAX_SIZE,
       maxHeight: MAX_SIZE,
       quality: 1,
     });
     console.log(result);
-    // if (result.didCancel) {
-    //   return;
-    // }
-    // if (!result.assets || !result.assets.length || !result?.assets[0]!.uri) {
-    //   return;
-    // }
-    if (!result) {
+    if (result.didCancel) {
       return;
     }
-    var loc = await getLatLong(result.uri);
+    if (!result.assets || !result.assets.length || !result?.assets[0]!.uri) {
+      return;
+    }
+    var loc = await getLatLong(result?.assets[0]?.uri);
+    console.log(result, loc);
+
+    result = await launchImageLibrary({
+      mediaType: 'photo',
+      maxWidth: MAX_SIZE,
+      maxHeight: MAX_SIZE,
+      quality: 1,
+    });
+    if (result.didCancel) {
+      return;
+    }
+    if (!result.assets || !result.assets.length || !result?.assets[0]!.uri) {
+      return;
+    }
+    var loc = await getLatLong(result?.assets[0]?.uri);
     console.log(result, loc);
   };
 

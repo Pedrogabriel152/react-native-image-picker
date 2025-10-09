@@ -4,14 +4,11 @@ react-native-image-picker
 
 ## Installation
 
-
 ```sh
 npm install @pedro.gabriel/react-native-image-picker
 ```
 
-
 ## Usage
-
 
 ```js
 import { multiply } from '@pedro.gabriel/react-native-image-picker';
@@ -20,7 +17,6 @@ import { multiply } from '@pedro.gabriel/react-native-image-picker';
 
 const result = multiply(3, 7);
 ```
-
 
 ## Contributing
 

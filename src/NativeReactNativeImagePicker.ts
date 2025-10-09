@@ -23,6 +23,7 @@ export interface Spec extends TurboModule {
    * @param callback Callback (erro, resultados)
    */
   launchImageLibrary(options: LaunchOptions): Promise<any>;
+  launchCamera(options: LaunchOptions): Promise<any>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('ReactNativeImagePicker');
