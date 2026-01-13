@@ -1,4 +1,4 @@
-ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
@@ -7,7 +7,7 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
-platform :ios, min_ios_version_supported
+platform :ios, '18.6'
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']
@@ -17,11 +17,34 @@ if linkage != nil
 end
 
 target 'ReactNativeImagePickerExample' do
-  config = use_native_modules!
+  config = nil
+  begin
+    project_root = File.expand_path("..", __dir__)
+    Dir.chdir(project_root) do
+      config = use_native_modules!
+    end
+  rescue => e
+    Pod::UI.warn "use_native_modules! failed: #{e.message}"
+  end
+  if config.nil? || config[:reactNativePath].nil?
+    fallback_react_native_path = "../../node_modules/react-native"
+    Pod::UI.warn "use_native_modules! returned nil. Falling back to #{fallback_react_native_path}"
+    config = { :reactNativePath => fallback_react_native_path }
+  end
+
+  react_native_path = config[:reactNativePath]
+  if react_native_path && !File.exist?(File.join(react_native_path, "package.json"))
+    maybe_absolute = "/#{react_native_path}"
+    if File.exist?(File.join(maybe_absolute, "package.json"))
+      react_native_path = maybe_absolute
+    else
+      react_native_path = "../../node_modules/react-native"
+    end
+  end
 
   use_react_native!(
-    :path => config[:reactNativePath],
-    # An absolute path to your application root.
+    :path => react_native_path,
+  
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
