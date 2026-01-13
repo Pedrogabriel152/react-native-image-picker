@@ -65,7 +65,9 @@ export default function App() {
     }
 
     const path =
-      Platform.OS === 'ios' && firstAsset.id ? `ph://${firstAsset.id}` : firstAsset.uri;
+      Platform.OS === 'ios' && firstAsset.id
+        ? `ph://${firstAsset.id}`
+        : firstAsset.uri;
 
     const loc = await getLatLong(path);
     console.log(result, loc);
@@ -96,7 +98,9 @@ export default function App() {
     }
 
     const path =
-      Platform.OS === 'ios' && firstAsset.id ? `ph://${firstAsset.id}` : firstAsset.uri;
+      Platform.OS === 'ios' && firstAsset.id
+        ? `ph://${firstAsset.id}`
+        : firstAsset.uri;
 
     const loc = await getLatLong(path);
     console.log(result, loc);
