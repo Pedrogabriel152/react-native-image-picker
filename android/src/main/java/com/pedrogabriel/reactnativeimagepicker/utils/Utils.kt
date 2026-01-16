@@ -52,15 +52,14 @@ object Utils {
   @JvmStatic
   fun createFile(reactContext: Context, fileType: String): File? {
     try {
-        val fileName: String = "$FILE_NAME_PREFIX${UUID.randomUUID()}.$fileType"
-
-        val fileDir: File = reactContext.cacheDir;
-
-        val file: File = File(fileDir, fileName)
-        file.createNewFile()
-        return file
-    }catch (e: Exception){
-      e.printStackTrace();
+      val fileName: String = "$FILE_NAME_PREFIX${UUID.randomUUID()}.$fileType"
+      // cacheDir não exige permissões de STORAGE no manifesto
+      val fileDir: File = reactContext.cacheDir
+      val file: File = File(fileDir, fileName)
+      file.createNewFile()
+      return file
+    } catch (e: Exception) {
+      e.printStackTrace()
       return null
     }
   }
@@ -69,6 +68,20 @@ object Utils {
   fun createUri(file: File, reactContext: Context): Uri{
     val authority: String = reactContext.applicationContext.packageName+".imagepickerprovider"
     return FileProvider.getUriForFile(reactContext,authority, file)
+  }
+  @JvmStatic
+  fun getAppSpecificStorageUri(sharedStorageUri: Uri?, context: Context): Uri? {
+    if (sharedStorageUri == null) return null
+    val contentResolver = context.contentResolver
+    val mimeType = contentResolver.getType(sharedStorageUri)
+    val fileType = getFileTypeFromMime(mimeType)
+
+    val destFile = createFile(context, fileType) ?: return null
+    val toUri = Uri.fromFile(destFile)
+
+    // copyUri transfere os bytes brutos, preservando o EXIF no arquivo de destino
+    copyUri(sharedStorageUri, toUri, contentResolver)
+    return toUri
   }
 
   @JvmStatic
@@ -110,32 +123,32 @@ object Utils {
     }
   }
 
-  @JvmStatic
-  fun getAppSpecificStorageUri(sharedStorageUri: Uri?, context: Context): Uri? {
-    if (sharedStorageUri == null) return null
-    val contentResolver = context.contentResolver
-    var fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri))
-
-    if (fileType == null) {
-      contentResolver.query(sharedStorageUri, null, null, null, null)?.use { cursor ->
-        if (cursor.moveToFirst()) {
-          val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-          if (nameIndex != -1) {
-            val fileName = cursor.getString(nameIndex)
-            val lastDotIndex = fileName.lastIndexOf('.')
-            if (lastDotIndex != -1) {
-              fileType = fileName.substring(lastDotIndex + 1)
-            }
-          }
-        }
-      }
-    }
-
-    val destFile = createFile(context, fileType ?: "jpg") ?: return null
-    val toUri = Uri.fromFile(destFile)
-    copyUri(sharedStorageUri, toUri, contentResolver)
-    return toUri
-  }
+//  @JvmStatic
+//  fun getAppSpecificStorageUri(sharedStorageUri: Uri?, context: Context): Uri? {
+//    if (sharedStorageUri == null) return null
+//    val contentResolver = context.contentResolver
+//    var fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri))
+//
+//    if (fileType == null) {
+//      contentResolver.query(sharedStorageUri, null, null, null, null)?.use { cursor ->
+//        if (cursor.moveToFirst()) {
+//          val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+//          if (nameIndex != -1) {
+//            val fileName = cursor.getString(nameIndex)
+//            val lastDotIndex = fileName.lastIndexOf('.')
+//            if (lastDotIndex != -1) {
+//              fileType = fileName.substring(lastDotIndex + 1)
+//            }
+//          }
+//        }
+//      }
+//    }
+//
+//    val destFile = createFile(context, fileType ?: "jpg") ?: return null
+//    val toUri = Uri.fromFile(destFile)
+//    copyUri(sharedStorageUri, toUri, contentResolver)
+//    return toUri
+//  }
 
   @JvmStatic
   fun isCameraAvailable(reactContext: Context): Boolean {
@@ -184,8 +197,7 @@ object Utils {
 
   @JvmStatic
   fun hasPermission(activity: Activity): Boolean {
-    val writePermission = ActivityCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-    return writePermission == PackageManager.PERMISSION_GRANTED
+    return true;
   }
 
   @JvmStatic
@@ -209,6 +221,41 @@ object Utils {
     }
   }
 
+  @Throws(IOException::class)
+  private fun copyExif(originalUri: Uri, newFile: File, context: Context) {
+    context.contentResolver.openInputStream(originalUri)?.use { inputStream ->
+      val originalExif = ExifInterface(inputStream)
+      val newExif = ExifInterface(newFile.absolutePath)
+      val tags = arrayOf(
+        ExifInterface.TAG_DATETIME,
+        ExifInterface.TAG_DATETIME_DIGITIZED,
+        ExifInterface.TAG_DATETIME_ORIGINAL,
+        ExifInterface.TAG_MAKE,
+        ExifInterface.TAG_MODEL,
+        ExifInterface.TAG_GPS_LATITUDE,
+        ExifInterface.TAG_GPS_LATITUDE_REF,
+        ExifInterface.TAG_GPS_LONGITUDE,
+        ExifInterface.TAG_GPS_LONGITUDE_REF,
+        ExifInterface.TAG_GPS_ALTITUDE,
+        ExifInterface.TAG_GPS_ALTITUDE_REF,
+        ExifInterface.TAG_GPS_TIMESTAMP,
+        ExifInterface.TAG_GPS_DATESTAMP,
+        ExifInterface.TAG_GPS_PROCESSING_METHOD,
+        ExifInterface.TAG_IMAGE_LENGTH,
+        ExifInterface.TAG_IMAGE_WIDTH,
+        ExifInterface.TAG_ORIENTATION
+      )
+
+      for (tag in tags) {
+        val value = originalExif.getAttribute(tag)
+        if (value != null) {
+          newExif.setAttribute(tag, value)
+        }
+      }
+      newExif.saveAttributes()
+    }
+  }
+
   private fun needToSwapDimension(orientation: String?): Boolean {
     return orientation == ExifInterface.ORIENTATION_ROTATE_90.toString() ||
       orientation == ExifInterface.ORIENTATION_ROTATE_270.toString()
@@ -229,23 +276,18 @@ object Utils {
       val origDimens = getImageDimensions(uri, context)
       var mimeType = getMimeType(uri, context)
 
-      val targetQuality: Int
-
-      if (!shouldResizeImage(origDimens[0], origDimens[1], options)) {
-        if (shouldConvertToJpeg(mimeType, options)) {
-          mimeType = "image/jpeg"
-          targetQuality = options.conversionQuality
-        } else {
-          return uri
-        }
-      } else {
-        targetQuality = options.quality
+      // Se não houver necessidade de redimensionar ou converter HEIC, retorne o original do cache
+      if (!shouldResizeImage(origDimens[0], origDimens[1], options) && !shouldConvertToJpeg(mimeType, options)) {
+        return uri
       }
 
+      val targetQuality = if (shouldResizeImage(origDimens[0], origDimens[1], options)) options.quality else options.conversionQuality
       val newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options)
 
       context.contentResolver.openInputStream(uri).use { imageStream ->
         if (imageStream == null) return uri
+
+        // BitmapFactory.decodeStream descarta metadados EXIF
         var b = BitmapFactory.decodeStream(imageStream)
         val originalOrientation = getOrientation(uri, context)
 
@@ -255,16 +297,22 @@ object Utils {
           Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true)
         }
 
-        val file = createFile(context, getFileTypeFromMime(mimeType))
+        val resultMime = if (shouldConvertToJpeg(mimeType, options)) "image/jpeg" else mimeType
+        val file = createFile(context, getFileTypeFromMime(resultMime))
         if (file == null) return uri
 
         context.contentResolver.openOutputStream(Uri.fromFile(file)).use { os ->
           if (os == null) return uri
-          b.compress(getBitmapCompressFormat(mimeType), targetQuality, os)
+          b.compress(getBitmapCompressFormat(resultMime), targetQuality, os)
         }
 
-        setOrientation(file, originalOrientation, context)
-        deleteFile(uri)
+        // MUDANÇA IMPORTANTE: Após criar a imagem redimensionada,
+        // copiamos manualmente os metadados do URI original para o novo File.
+        copyExif(uri, file, context)
+
+        // Se o arquivo original era um temporário de cache, podemos deletar para economizar espaço
+        if (uri.scheme == "file") deleteFile(uri)
+
         return Uri.fromFile(file)
       }
     } catch (e: Exception) {
