@@ -1,0 +1,48 @@
+name: Test and Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Enable Corepack (Yarn v3)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # ✅ Lint
+      - name: Lint
+        run: yarn lint
+
+      # ✅ TypeScript check
+      - name: Typecheck
+        run: yarn typecheck
+
+      # ✅ Testes (Jest)
+      - name: Run tests
+        run: yarn test --ci --passWithNoTests
+
+      # ✅ Build (bob)
+      - name: Build
+        run: yarn prepare
+
+      # 🚀 Publish (só roda se tudo acima passar)
+      - name: Publish to npm
+        run: yarn npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
