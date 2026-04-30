@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import AVFoundation
 import Photos
 import PhotosUI
 import MobileCoreServices
@@ -17,14 +18,31 @@ public final class RNImagePickerService: NSObject {
   private var reject: RCTPromiseRejectBlock?
   private var options = ImagePickerOptions(nil)
   private var activeRequest: RequestType?
+  private var isRequestInFlight = false
+
+  private func startRequest(type: RequestType,
+                            options: NSDictionary,
+                            resolve: @escaping RCTPromiseResolveBlock,
+                            reject: @escaping RCTPromiseRejectBlock) -> Bool {
+    if isRequestInFlight {
+      reject(ImagePickerError.others.rawValue, "Another picker request is already in progress", nil)
+      return false
+    }
+
+    self.resolve = resolve
+    self.reject = reject
+    self.options = ImagePickerOptions(options as? [String: Any])
+    self.activeRequest = type
+    self.isRequestInFlight = true
+    return true
+  }
 
   public func launchImageLibraryWithOptions(_ options: NSDictionary,
                                             resolve: @escaping RCTPromiseResolveBlock,
                                             reject: @escaping RCTPromiseRejectBlock) {
-    self.resolve = resolve
-    self.reject = reject
-    self.options = ImagePickerOptions(options as? [String: Any])
-    self.activeRequest = .library
+    guard startRequest(type: .library, options: options, resolve: resolve, reject: reject) else {
+      return
+    }
 
     DispatchQueue.main.async {
       if #available(iOS 14.0, *) {
@@ -55,10 +73,9 @@ public final class RNImagePickerService: NSObject {
   public func launchCameraWithOptions(_ options: NSDictionary,
                                       resolve: @escaping RCTPromiseResolveBlock,
                                       reject: @escaping RCTPromiseRejectBlock) {
-    self.resolve = resolve
-    self.reject = reject
-    self.options = ImagePickerOptions(options as? [String: Any])
-    self.activeRequest = .camera
+    guard startRequest(type: .camera, options: options, resolve: resolve, reject: reject) else {
+      return
+    }
 
     DispatchQueue.main.async {
 #if targetEnvironment(simulator)
@@ -77,57 +94,57 @@ public final class RNImagePickerService: NSObject {
         return
       }
 
-      self.ensurePhotoLibraryPermissionIfNeeded { authorized in
-        if !authorized {
-          self.reject?(ImagePickerError.permission.rawValue, "Access denied", nil)
+      self.ensureCameraPermission { granted in
+        if !granted {
+          self.reject?(ImagePickerError.permission.rawValue, "Camera access denied", nil)
           self.cleanup()
           return
         }
 
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.mediaTypes = self.mediaTypes(for: self.options.mediaType)
-        picker.videoQuality = self.options.videoQuality
-        if self.options.durationLimit > 0 {
-          picker.videoMaximumDuration = self.options.durationLimit
-        }
-        if UIImagePickerController.isCameraDeviceAvailable(.front), self.options.useFrontCamera {
-          picker.cameraDevice = .front
-        }
-        picker.delegate = self
-        self.present(picker)
+        self.openCameraPicker()
       }
     }
   }
 
-  private func present(_ controller: UIViewController) {
-    guard let presenter = ImagePickerUtils.presentedViewController() else {
-      reject?(ImagePickerError.others.rawValue, "No view controller to present", nil)
-      cleanup()
-      return
+  private func openCameraPicker() {
+    ensurePhotoLibraryPermissionIfNeeded { authorized in
+      if !authorized {
+        self.reject?(ImagePickerError.permission.rawValue, "Access denied", nil)
+        self.cleanup()
+        return
+      }
+
+      let picker = UIImagePickerController()
+      picker.sourceType = .camera
+      picker.mediaTypes = self.mediaTypes(for: self.options.mediaType)
+      picker.videoQuality = self.options.videoQuality
+      if self.options.durationLimit > 0 {
+        picker.videoMaximumDuration = self.options.durationLimit
+      }
+      if UIImagePickerController.isCameraDeviceAvailable(.front), self.options.useFrontCamera {
+        picker.cameraDevice = .front
+      }
+      picker.delegate = self
+      self.present(picker)
     }
-    presenter.present(controller, animated: true)
   }
 
-  private func mediaTypes(for mediaType: ImagePickerOptions.MediaType) -> [String] {
-    let imageType: String
-    let movieType: String
+  private func ensureCameraPermission(completion: @escaping (Bool) -> Void) {
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
 
-    if #available(iOS 14.0, *) {
-      imageType = UTType.image.identifier
-      movieType = UTType.movie.identifier
-    } else {
-      imageType = kUTTypeImage as String
-      movieType = kUTTypeMovie as String
-    }
-
-    switch mediaType {
-    case .photo:
-      return [imageType]
-    case .video:
-      return [movieType]
-    case .any:
-      return [imageType, movieType]
+    switch status {
+    case .authorized:
+      completion(true)
+    case .notDetermined:
+      AVCaptureDevice.requestAccess(for: .video) { granted in
+        DispatchQueue.main.async {
+          completion(granted)
+        }
+      }
+    case .denied, .restricted:
+      completion(false)
+    @unknown default:
+      completion(false)
     }
   }
 
@@ -167,6 +184,37 @@ public final class RNImagePickerService: NSObject {
     }
   }
 
+  private func present(_ controller: UIViewController) {
+    guard let presenter = ImagePickerUtils.presentedViewController() else {
+      reject?(ImagePickerError.others.rawValue, "No view controller to present", nil)
+      cleanup()
+      return
+    }
+    presenter.present(controller, animated: true)
+  }
+
+  private func mediaTypes(for mediaType: ImagePickerOptions.MediaType) -> [String] {
+    let imageType: String
+    let movieType: String
+
+    if #available(iOS 14.0, *) {
+      imageType = UTType.image.identifier
+      movieType = UTType.movie.identifier
+    } else {
+      imageType = kUTTypeImage as String
+      movieType = kUTTypeMovie as String
+    }
+
+    switch mediaType {
+    case .photo:
+      return [imageType]
+    case .video:
+      return [movieType]
+    case .any:
+      return [imageType, movieType]
+    }
+  }
+
   private func resolveCancel() {
     resolve?(["didCancel": true])
     cleanup()
@@ -181,6 +229,7 @@ public final class RNImagePickerService: NSObject {
     resolve = nil
     reject = nil
     activeRequest = nil
+    isRequestInFlight = false
   }
 
   private func saveToPhotosIfNeeded(fileURL: URL, isVideo: Bool, completion: @escaping (Bool) -> Void) {

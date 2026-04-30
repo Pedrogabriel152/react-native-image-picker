@@ -28,6 +28,15 @@ RCT_NEW_ARCH_ENABLED=1 npx pod-install ios
 npx pod-install ios
 ```
 
+### Architecture Compatibility
+
+This library supports both React Native architectures dynamically:
+
+- `new_arch_enabled => true` (TurboModules)
+- `new_arch_enabled => false` (Legacy NativeModules bridge)
+
+No API changes are required in JavaScript between both modes.
+
 ## Post-install Steps
 
 ### iOS
