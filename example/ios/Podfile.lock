@@ -2257,7 +2257,7 @@ PODS:
     - SocketRocket
   - ReactNativeExif (1.1.0):
     - React-Core
-  - ReactNativeImagePicker (1.0.1):
+  - ReactNativeImagePicker (1.1.3):
     - boost
     - DoubleConversion
     - fast_float
@@ -2594,10 +2594,10 @@ SPEC CHECKSUMS:
   ReactCodegen: 4d203eddf6f977caa324640a20f92e70408d648b
   ReactCommon: ce5d4226dfaf9d5dacbef57b4528819e39d3a120
   ReactNativeExif: 3553ee9009e2833cb3fe5436d23faab75b874d74
-  ReactNativeImagePicker: 69e9d57cfdd82415b31d5f508f45dc8c3a58195a
+  ReactNativeImagePicker: 0e61e9aa585a1a6df1f4da8504b9e84d55e09cea
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 11c9686a21e2cd82a094a723649d9f4507200fb0
 
-PODFILE CHECKSUM: 7e21142f3fd7b6f4cef9a3812df3b5e1ec27fa84
+PODFILE CHECKSUM: 6a106bca4d75e03b02990976e66194b3049659cc
 
 COCOAPODS: 1.16.2

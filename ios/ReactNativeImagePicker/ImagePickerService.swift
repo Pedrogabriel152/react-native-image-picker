@@ -20,33 +20,55 @@ public final class RNImagePickerService: NSObject {
   private var activeRequest: RequestType?
   private var isRequestInFlight = false
 
-  private func startRequest(type: RequestType,
-                            options: NSDictionary,
-                            resolve: @escaping RCTPromiseResolveBlock,
-                            reject: @escaping RCTPromiseRejectBlock) -> Bool {
-    if isRequestInFlight {
-      // Treat overlapping launches as a user cancellation to avoid noisy crashes in debug
-      // when UI triggers camera/library twice before the first flow completes.
-      resolve(["didCancel": true])
-      return false
-    }
+  // Synchronization queue for thread-safe access to resolve/reject
+  private let syncQueue = DispatchQueue(label: "com.react-native-image-picker.sync")
 
-    self.resolve = resolve
-    self.reject = reject
-    self.options = ImagePickerOptions(options as? [String: Any])
-    self.activeRequest = type
-    self.isRequestInFlight = true
-    return true
+  private func onMain(_ block: @escaping () -> Void) {
+    if Thread.isMainThread {
+      block()
+    } else {
+      DispatchQueue.main.async(execute: block)
+    }
   }
 
-  public func launchImageLibraryWithOptions(_ options: NSDictionary,
+  // Thread-safe getter for resolve callback
+  private func getResolve() -> RCTPromiseResolveBlock? {
+    return syncQueue.sync { self.resolve }
+  }
+
+  // Thread-safe getter for reject callback
+  private func getReject() -> RCTPromiseRejectBlock? {
+    return syncQueue.sync { self.reject }
+  }
+
+  private func startRequest(type: RequestType,
+                            options: NSDictionary?,
+                            resolve: @escaping RCTPromiseResolveBlock,
+                            reject: @escaping RCTPromiseRejectBlock) -> Bool {
+    return syncQueue.sync {
+      if isRequestInFlight {
+        // Ignore overlapping launches while a picker flow is active.
+        // Resolving/rejecting here can touch an invalid callback during race conditions.
+        return false
+      }
+
+      self.resolve = resolve
+      self.reject = reject
+      self.options = ImagePickerOptions(options as? [String: Any])
+      self.activeRequest = type
+      self.isRequestInFlight = true
+      return true
+    }
+  }
+
+  public func launchImageLibraryWithOptions(_ options: NSDictionary?,
                                             resolve: @escaping RCTPromiseResolveBlock,
                                             reject: @escaping RCTPromiseRejectBlock) {
-    guard startRequest(type: .library, options: options, resolve: resolve, reject: reject) else {
-      return
-    }
-
     DispatchQueue.main.async {
+      guard self.startRequest(type: .library, options: options, resolve: resolve, reject: reject) else {
+        return
+      }
+
       if #available(iOS 14.0, *) {
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.selectionLimit = self.options.selectionLimit == 0 ? 0 : self.options.selectionLimit
@@ -72,14 +94,14 @@ public final class RNImagePickerService: NSObject {
     }
   }
 
-  public func launchCameraWithOptions(_ options: NSDictionary,
+  public func launchCameraWithOptions(_ options: NSDictionary?,
                                       resolve: @escaping RCTPromiseResolveBlock,
                                       reject: @escaping RCTPromiseRejectBlock) {
-    guard startRequest(type: .camera, options: options, resolve: resolve, reject: reject) else {
-      return
-    }
-
     DispatchQueue.main.async {
+      guard self.startRequest(type: .camera, options: options, resolve: resolve, reject: reject) else {
+        return
+      }
+
 #if targetEnvironment(simulator)
       // Simulator camera capture is unreliable; fallback to library.
       self.activeRequest = .library
@@ -91,14 +113,14 @@ public final class RNImagePickerService: NSObject {
       return
 #endif
       guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-        self.reject?(ImagePickerError.cameraUnavailable.rawValue, "Camera not available", nil)
+        self.getReject()?(ImagePickerError.cameraUnavailable.rawValue, "Camera not available", nil)
         self.cleanup()
         return
       }
 
       self.ensureCameraPermission { granted in
         if !granted {
-          self.reject?(ImagePickerError.permission.rawValue, "Camera access denied", nil)
+          self.getReject()?(ImagePickerError.permission.rawValue, "Camera access denied", nil)
           self.cleanup()
           return
         }
@@ -111,7 +133,7 @@ public final class RNImagePickerService: NSObject {
   private func openCameraPicker() {
     ensurePhotoLibraryPermissionIfNeeded { authorized in
       if !authorized {
-        self.reject?(ImagePickerError.permission.rawValue, "Access denied", nil)
+        self.getReject()?(ImagePickerError.permission.rawValue, "Access denied", nil)
         self.cleanup()
         return
       }
@@ -136,23 +158,21 @@ public final class RNImagePickerService: NSObject {
 
     switch status {
     case .authorized:
-      completion(true)
+      onMain { completion(true) }
     case .notDetermined:
       AVCaptureDevice.requestAccess(for: .video) { granted in
-        DispatchQueue.main.async {
-          completion(granted)
-        }
+        self.onMain { completion(granted) }
       }
     case .denied, .restricted:
-      completion(false)
+      onMain { completion(false) }
     @unknown default:
-      completion(false)
+      onMain { completion(false) }
     }
   }
 
   private func ensurePhotoLibraryPermissionIfNeeded(completion: @escaping (Bool) -> Void) {
     guard options.saveToPhotos else {
-      completion(true)
+      onMain { completion(true) }
       return
     }
 
@@ -170,25 +190,31 @@ public final class RNImagePickerService: NSObject {
                                         requestAddOnly: Bool) {
     switch status {
     case .authorized, .limited:
-      completion(true)
+      onMain { completion(true) }
     case .notDetermined:
       if #available(iOS 14.0, *), requestAddOnly {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
-          completion(newStatus == .authorized || newStatus == .limited)
+          self.onMain {
+            completion(newStatus == .authorized || newStatus == .limited)
+          }
         }
       } else {
         PHPhotoLibrary.requestAuthorization { newStatus in
-          completion(newStatus == .authorized)
+          self.onMain {
+            completion(newStatus == .authorized)
+          }
         }
       }
+    case .denied, .restricted:
+      onMain { completion(false) }
     @unknown default:
-      completion(false)
+      onMain { completion(false) }
     }
   }
 
   private func present(_ controller: UIViewController) {
     guard let presenter = ImagePickerUtils.presentedViewController() else {
-      reject?(ImagePickerError.others.rawValue, "No view controller to present", nil)
+      self.getReject()?(ImagePickerError.others.rawValue, "No view controller to present", nil)
       cleanup()
       return
     }
@@ -218,25 +244,33 @@ public final class RNImagePickerService: NSObject {
   }
 
   private func resolveCancel() {
-    resolve?(["didCancel": true])
-    cleanup()
+    let resolveBlock = getResolve()
+    DispatchQueue.main.async {
+      resolveBlock?(["didCancel": true])
+      self.cleanup()
+    }
   }
 
   private func resolveAssets(_ assets: [[String: Any]]) {
-    resolve?(["assets": assets])
-    cleanup()
+    let resolveBlock = getResolve()
+    DispatchQueue.main.async {
+      resolveBlock?(["assets": assets])
+      self.cleanup()
+    }
   }
 
   private func cleanup() {
-    resolve = nil
-    reject = nil
-    activeRequest = nil
-    isRequestInFlight = false
+    syncQueue.sync {
+      resolve = nil
+      reject = nil
+      activeRequest = nil
+      isRequestInFlight = false
+    }
   }
 
   private func saveToPhotosIfNeeded(fileURL: URL, isVideo: Bool, completion: @escaping (Bool) -> Void) {
     guard options.saveToPhotos, activeRequest == .camera else {
-      completion(true)
+      onMain { completion(true) }
       return
     }
 
@@ -249,7 +283,9 @@ public final class RNImagePickerService: NSObject {
         }
       }
     }) { success, _ in
-      completion(success)
+      self.onMain {
+        completion(success)
+      }
     }
   }
 
@@ -317,7 +353,7 @@ extension RNImagePickerService: PHPickerViewControllerDelegate {
     picker.dismiss(animated: true)
 
     if results.isEmpty {
-      resolveCancel()
+      self.resolveCancel()
       return
     }
 
@@ -367,7 +403,7 @@ extension RNImagePickerService: PHPickerViewControllerDelegate {
 
     group.notify(queue: .main) {
       if let error = loadError {
-        self.reject?(ImagePickerError.others.rawValue, error.localizedDescription, error)
+        self.getReject()?(ImagePickerError.others.rawValue, error.localizedDescription, error)
         self.cleanup()
         return
       }
@@ -392,8 +428,8 @@ extension RNImagePickerService: UIImagePickerControllerDelegate, UINavigationCon
 
     if isVideo {
       guard let mediaURL = info[.mediaURL] as? URL else {
-        reject?(ImagePickerError.others.rawValue, "Missing video URL", nil)
-        cleanup()
+        self.getReject()?(ImagePickerError.others.rawValue, "Missing video URL", nil)
+        self.cleanup()
         return
       }
 
@@ -402,7 +438,7 @@ extension RNImagePickerService: UIImagePickerControllerDelegate, UINavigationCon
 
       saveToPhotosIfNeeded(fileURL: mediaURL, isVideo: true) { success in
         if !success {
-          self.reject?(ImagePickerError.others.rawValue, "Could not save video", nil)
+          self.getReject()?(ImagePickerError.others.rawValue, "Could not save video", nil)
           self.cleanup()
           return
         }
@@ -416,7 +452,7 @@ extension RNImagePickerService: UIImagePickerControllerDelegate, UINavigationCon
 
         saveToPhotosIfNeeded(fileURL: workingURL, isVideo: false) { success in
           if !success {
-            self.reject?(ImagePickerError.others.rawValue, "Could not save image", nil)
+            self.getReject()?(ImagePickerError.others.rawValue, "Could not save image", nil)
             self.cleanup()
             return
           }
@@ -426,8 +462,8 @@ extension RNImagePickerService: UIImagePickerControllerDelegate, UINavigationCon
       }
 
       guard let image = info[.originalImage] as? UIImage else {
-        reject?(ImagePickerError.others.rawValue, "Missing image", nil)
-        cleanup()
+        self.getReject()?(ImagePickerError.others.rawValue, "Missing image", nil)
+        self.cleanup()
         return
       }
 
@@ -440,7 +476,7 @@ extension RNImagePickerService: UIImagePickerControllerDelegate, UINavigationCon
 
       saveToPhotosIfNeeded(fileURL: tempURL, isVideo: false) { success in
         if !success {
-          self.reject?(ImagePickerError.others.rawValue, "Could not save image", nil)
+          self.getReject()?(ImagePickerError.others.rawValue, "Could not save image", nil)
           self.cleanup()
           return
         }
