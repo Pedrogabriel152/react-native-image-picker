@@ -25,7 +25,9 @@ public final class RNImagePickerService: NSObject {
                             resolve: @escaping RCTPromiseResolveBlock,
                             reject: @escaping RCTPromiseRejectBlock) -> Bool {
     if isRequestInFlight {
-      reject(ImagePickerError.others.rawValue, "Another picker request is already in progress", nil)
+      // Treat overlapping launches as a user cancellation to avoid noisy crashes in debug
+      // when UI triggers camera/library twice before the first flow completes.
+      resolve(["didCancel": true])
       return false
     }
 
