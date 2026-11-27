@@ -1,4 +1,8 @@
-import { TurboModuleRegistry, type TurboModule } from 'react-native';
+import {
+  NativeModules,
+  TurboModuleRegistry,
+  type TurboModule,
+} from 'react-native';
 
 export type PickerResult = {
   uri: string;
@@ -12,11 +16,13 @@ export type LaunchOptions = {
   maxWidth?: number;
   maxHeight?: number;
   quality?: number;
-  restrictMimeTypes?: string[];
   includeBase64?: boolean;
   includeExtra?: boolean;
   saveToPhotos?: boolean;
+  durationLimit?: number;
+  videoQuality?: 'low' | 'medium' | 'high';
   cameraType?: 'back' | 'front';
+  restrictMimeTypes?: string[];
   /**
    * Valor opaco salvo junto com a captura da câmera (Android) e devolvido por
    * getPendingResult(), para identificar a quem a foto pertence após o app ser reiniciado.
@@ -40,4 +46,27 @@ export interface Spec extends TurboModule {
   getPendingResult(): Promise<Object | null>;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>('ReactNativeImagePicker');
+type LegacySpec = {
+  multiply(a: number, b: number): number;
+  launchImageLibrary(options: LaunchOptions): Promise<any>;
+  launchCamera(options: LaunchOptions): Promise<any>;
+  getPendingResult(): Promise<Object | null>;
+};
+
+const turboModule = TurboModuleRegistry.get<Spec>('ReactNativeImagePicker');
+const legacyModule = NativeModules.ReactNativeImagePicker as
+  | LegacySpec
+  | undefined;
+
+const moduleProxy = (turboModule ?? legacyModule) as
+  | Spec
+  | LegacySpec
+  | undefined;
+
+if (!moduleProxy) {
+  throw new Error(
+    'ReactNativeImagePicker native module not found. Ensure pods/gradle are installed and the app was rebuilt.'
+  );
+}
+
+export default moduleProxy as Spec;
