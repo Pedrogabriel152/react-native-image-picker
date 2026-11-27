@@ -283,41 +283,92 @@ object Utils {
 
       val targetQuality = if (shouldResizeImage(origDimens[0], origDimens[1], options)) options.quality else options.conversionQuality
       val newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options)
+      val originalOrientation = getOrientation(uri, context)
+      val swap = needToSwapDimension(originalOrientation)
 
-      context.contentResolver.openInputStream(uri).use { imageStream ->
+      // Dimensões do bitmap como está gravado (antes da rotação EXIF)
+      val rawWidth = if (swap) origDimens[1] else origDimens[0]
+      val rawHeight = if (swap) origDimens[0] else origDimens[1]
+      val targetWidth = if (swap) newDimens[1] else newDimens[0]
+      val targetHeight = if (swap) newDimens[0] else newDimens[1]
+      if (targetWidth <= 0 || targetHeight <= 0) return uri
+
+      // Decodifica já reduzido (inSampleSize) em vez de carregar a foto em resolução cheia:
+      // 12MP ≈ 48MB e 64MP ≈ 256MB de heap, o que causava OOM / morte do processo.
+      val decodeOptions = BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(rawWidth, rawHeight, targetWidth, targetHeight)
+      }
+      val decoded: Bitmap = context.contentResolver.openInputStream(uri).use { imageStream ->
         if (imageStream == null) return uri
-
         // BitmapFactory.decodeStream descarta metadados EXIF
-        var b = BitmapFactory.decodeStream(imageStream)
-        val originalOrientation = getOrientation(uri, context)
+        BitmapFactory.decodeStream(imageStream, null, decodeOptions)
+      } ?: return uri
 
-        b = if (needToSwapDimension(originalOrientation)) {
-          Bitmap.createScaledBitmap(b, newDimens[1], newDimens[0], true)
+      var scaled: Bitmap? = null
+      try {
+        val output: Bitmap = if (decoded.width == targetWidth && decoded.height == targetHeight) {
+          decoded
         } else {
-          Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true)
+          Bitmap.createScaledBitmap(decoded, targetWidth, targetHeight, true)
         }
+        scaled = output
+        if (output !== decoded) decoded.recycle()
 
         val resultMime = if (shouldConvertToJpeg(mimeType, options)) "image/jpeg" else mimeType
-        val file = createFile(context, getFileTypeFromMime(resultMime))
-        if (file == null) return uri
+        val file = createFile(context, getFileTypeFromMime(resultMime)) ?: return uri
 
         context.contentResolver.openOutputStream(Uri.fromFile(file)).use { os ->
-          if (os == null) return uri
-          b.compress(getBitmapCompressFormat(resultMime), targetQuality, os)
+          if (os == null) {
+            file.delete()
+            return uri
+          }
+          output.compress(getBitmapCompressFormat(resultMime), targetQuality, os)
         }
 
-        // MUDANÇA IMPORTANTE: Após criar a imagem redimensionada,
-        // copiamos manualmente os metadados do URI original para o novo File.
+        // Após criar a imagem redimensionada, copiamos os metadados do original para o novo arquivo.
         copyExif(uri, file, context)
 
-        // Se o arquivo original era um temporário de cache, podemos deletar para economizar espaço
+        // O original era um temporário de cache: apaga para não acumular arquivos grandes
         if (uri.scheme == "file") deleteFile(uri)
 
         return Uri.fromFile(file)
+      } finally {
+        if (!decoded.isRecycled) decoded.recycle()
+        scaled?.let { if (!it.isRecycled) it.recycle() }
+      }
+    } catch (e: Throwable) {
+      // Throwable inclui OutOfMemoryError: devolve o original em vez de derrubar o processo
+      e.printStackTrace()
+      return uri
+    }
+  }
+
+  /** Maior potência de 2 que mantém a imagem decodificada >= ao tamanho alvo. */
+  @JvmStatic
+  fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
+    var inSampleSize = 1
+    if (width <= 0 || height <= 0) return inSampleSize
+    while ((width / (inSampleSize * 2)) >= reqWidth && (height / (inSampleSize * 2)) >= reqHeight) {
+      inSampleSize *= 2
+    }
+    return inSampleSize
+  }
+
+  /**
+   * Remove arquivos temporários da lib com mais de 24h no cacheDir.
+   * [keepPath] protege o arquivo de uma captura pendente.
+   */
+  @JvmStatic
+  fun cleanOldTempFiles(context: Context, keepPath: String?) {
+    try {
+      val limit = System.currentTimeMillis() - PendingCaptureStore.MAX_AGE_MS
+      context.cacheDir.listFiles()?.forEach { f ->
+        if (f.isFile && f.name.startsWith(FILE_NAME_PREFIX) && f.lastModified() < limit && f.absolutePath != keepPath) {
+          f.delete()
+        }
       }
     } catch (e: Exception) {
       e.printStackTrace()
-      return uri
     }
   }
 
@@ -525,15 +576,16 @@ object Utils {
 
   @JvmStatic
   fun getOriginalFilePath(uri: Uri, context: Context): String? {
-    var originPath: String? = null
-    var workingUri = uri
-    if (uri.scheme?.contains("content") == true) {
-      originPath = getFilePathFromContent(uri, context)
-      getAppSpecificStorageUri(uri, context)?.let { workingUri = it }
+    // Não copia o arquivo aqui: a cópia para o cache já é feita em getResponseMap
+    return if (uri.scheme?.contains("content") == true) {
+      try {
+        getFilePathFromContent(uri, context)
+      } catch (e: Exception) {
+        null
+      }
     } else {
-      originPath = uri.toString()
+      uri.toString()
     }
-    return originPath
   }
 
   private fun getFilePathFromContent(uri: Uri, context: Context): String? {
@@ -660,9 +712,6 @@ object Utils {
         appSpecificUrl = resizeOrConvertImage(appSpecificUrl, context, options) ?: appSpecificUrl
         assets.pushMap(getImageResponseMap(uri, appSpecificUrl, options, context))
       } else if (isVideoType(uri, context)) {
-        if (uri.scheme?.contains("content") == true) {
-          getAppSpecificStorageUri(uri, context)?.let { appSpecificUrl = it }
-        }
         assets.pushMap(getVideoResponseMap(uri, appSpecificUrl, options, context))
       } else {
         throw RuntimeException("Unsupported file type")

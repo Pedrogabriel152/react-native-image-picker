@@ -23,6 +23,11 @@ export type LaunchOptions = {
   videoQuality?: 'low' | 'medium' | 'high';
   cameraType?: 'back' | 'front';
   restrictMimeTypes?: string[];
+  /**
+   * Valor opaco salvo junto com a captura da câmera (Android) e devolvido por
+   * getPendingResult(), para identificar a quem a foto pertence após o app ser reiniciado.
+   */
+  tag?: string;
 };
 
 export interface Spec extends TurboModule {
@@ -34,12 +39,18 @@ export interface Spec extends TurboModule {
    */
   launchImageLibrary(options: LaunchOptions): Promise<any>;
   launchCamera(options: LaunchOptions): Promise<any>;
+  /**
+   * Android: recupera a foto/vídeo da última launchCamera cujo resultado foi perdido porque
+   * o sistema encerrou o processo do app enquanto a câmera estava aberta. Resolve null se não houver.
+   */
+  getPendingResult(): Promise<Object | null>;
 }
 
 type LegacySpec = {
   multiply(a: number, b: number): number;
   launchImageLibrary(options: LaunchOptions): Promise<any>;
   launchCamera(options: LaunchOptions): Promise<any>;
+  getPendingResult(): Promise<Object | null>;
 };
 
 const turboModule = TurboModuleRegistry.get<Spec>('ReactNativeImagePicker');

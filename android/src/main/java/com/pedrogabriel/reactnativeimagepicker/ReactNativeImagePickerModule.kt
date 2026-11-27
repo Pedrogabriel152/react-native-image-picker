@@ -41,6 +41,11 @@ class ReactNativeImagePickerModule(reactContext: ReactApplicationContext) :
         this.imagePickerModuleImpl.launchCamera(options, promise)
     }
 
+    @ReactMethod
+    override fun getPendingResult(promise: Promise) {
+        this.imagePickerModuleImpl.getPendingResult(promise)
+    }
+
     override fun onActivityResult(
         activity: Activity,
         requestCode: Int,

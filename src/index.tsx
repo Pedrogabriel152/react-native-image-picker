@@ -2,6 +2,8 @@ import ReactNativeImagePicker, {
   type LaunchOptions,
 } from './NativeReactNativeImagePicker';
 
+export type { LaunchOptions } from './NativeReactNativeImagePicker';
+
 export function multiply(a: number, b: number): number {
   return ReactNativeImagePicker.multiply(a, b);
 }
@@ -17,4 +19,20 @@ export function launchImageLibrary(options: LaunchOptions = {}): Promise<any> {
 
 export function launchCamera(options: LaunchOptions = {}): Promise<any> {
   return ReactNativeImagePicker.launchCamera(options);
+}
+
+export type PendingResult = {
+  assets: any[];
+  /** O mesmo `tag` passado em launchCamera, ou null. */
+  tag: string | null;
+  recovered: true;
+};
+
+/**
+ * Android: recupera a captura da câmera perdida quando o sistema mata o app em segundo plano
+ * (comum em aparelhos Samsung). Chame ao montar a tela que abriu a câmera.
+ * Resolve null quando não há nada pendente (sempre null no iOS).
+ */
+export function getPendingResult(): Promise<PendingResult | null> {
+  return ReactNativeImagePicker.getPendingResult() as Promise<PendingResult | null>;
 }

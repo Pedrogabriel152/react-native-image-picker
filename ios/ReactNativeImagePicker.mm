@@ -128,6 +128,22 @@ RCT_REMAP_METHOD(launchCamera,
 }
 #endif
 
+// Recuperação de captura após morte do processo só é necessária no Android
+#if RCT_NEW_ARCH_ENABLED
+- (void)getPendingResult:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject
+{
+  resolve(nil);
+}
+#else
+RCT_REMAP_METHOD(getPendingResult,
+                 getPendingResultLegacyWithResolve:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject)
+{
+  resolve(nil);
+}
+#endif
+
 #if RCT_NEW_ARCH_ENABLED
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
     (const facebook::react::ObjCTurboModule::InitParams &)params

@@ -19,10 +19,12 @@ class Options(options: ReadableMap) {
   var useFrontCamera: Boolean = false
   var mediaType: String? = null
   var restrictMimeTypes: Array<String?>? = null
+  var tag: String? = null
 
   init {
-        mediaType = options.getString("mediaType") ?: Utils.MEDIA_TYPE_PHOTO
-        restrictMimeTypes = options.getArray("restrictMimeTypes")?.toArrayList()?.map { it.toString() }?.toTypedArray() ?: null
+        mediaType = (if (options.hasKey("mediaType")) options.getString("mediaType") else null) ?: Utils.MEDIA_TYPE_PHOTO
+        tag = if (options.hasKey("tag") && !options.isNull("tag")) options.getString("tag") else null
+        restrictMimeTypes = if (!options.hasKey("restrictMimeTypes")) null else options.getArray("restrictMimeTypes")?.toArrayList()?.map { it.toString() }?.toTypedArray() ?: null
         selectionLimit = if (options.hasKey("selectionLimit")) {
             options.getInt("selectionLimit")
         } else {
@@ -63,13 +65,13 @@ class Options(options: ReadableMap) {
           convertToJpeg = false
         }
 
-        if (options.getString("cameraType") == "front") {
+        if (options.hasKey("cameraType") && options.getString("cameraType") == "front") {
           useFrontCamera = true
         }
 
-        quality = (options.getDouble("quality") * 100).toInt()
-        maxHeight = options.getInt("maxHeight") ?: 2000
-        maxWidth = options.getInt("maxWidth") ?: 2000
+        quality = if (options.hasKey("quality")) (options.getDouble("quality") * 100).toInt() else 100
+        maxHeight = if (options.hasKey("maxHeight")) options.getInt("maxHeight") else 0
+        maxWidth = if (options.hasKey("maxWidth")) options.getInt("maxWidth") else 0
         saveToPhotos = if (options.hasKey("saveToPhotos")) {
           options.getBoolean("saveToPhotos")
         } else {
