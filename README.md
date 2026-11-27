@@ -84,6 +84,30 @@ See [Options](#options) for further information on `options`.
 
 The `callback` will be called with a response object, refer to [The Response Object](#the-response-object).
 
+### `getPendingResult()` (Android)
+
+On Android the camera is a separate app. While it is open, the system may kill your app's process to free memory (very common on Samsung devices). When the user confirms the photo, the app restarts and the promise from `launchCamera` is lost.
+
+The library saves the in-flight capture before opening the camera. Call `getPendingResult()` when the screen that opened the camera mounts again to recover it:
+
+```js
+import { launchCamera, getPendingResult } from '@pedro.gabriel/react-native-image-picker';
+
+// when opening the camera, identify who the photo belongs to
+await launchCamera({ mediaType: 'photo', tag: JSON.stringify({ questionId }) });
+
+// on mount
+useEffect(() => {
+  getPendingResult().then((result) => {
+    if (result && result.tag === JSON.stringify({ questionId })) {
+      handlePhoto(result); // same shape as launchCamera's response, plus `tag` and `recovered: true`
+    }
+  });
+}, []);
+```
+
+It resolves `null` when there is nothing to recover, when the capture was cancelled, or when it is older than 24h. It always resolves `null` on iOS. A pending capture is discarded when `launchCamera` is called again.
+
 ## Options
 
 | Option                  | iOS | Android | Web | Description                                                                                                                                                                                                                                |
@@ -104,6 +128,7 @@ The `callback` will be called with a response object, refer to [The Response Obj
 | presentationStyle       | OK  | NO      | NO  | Controls how the picker is presented. `currentContext`, `pageSheet`, `fullScreen`, `formSheet`, `popover`, `overFullScreen`, `overCurrentContext`. Default is `currentContext`.                                                            |
 | formatAsMp4             | OK  | NO      | NO  | Converts the selected video to MP4 (iOS Only).                                                                                                                                                                                             |
 | assetRepresentationMode | OK  | OK      | NO  | A mode that determines which representation to use if an asset contains more than one on iOS or disables HEIC/HEIF to JPEG conversion on Android if set to 'current'. Possible values: 'auto', 'current', 'compatible'. Default is 'auto'. |
+| tag                     | NO  | OK      | NO  | (String) Only for `launchCamera`. Opaque value stored with the capture and returned by [`getPendingResult()`](#getpendingresult-android) to identify the recovered photo. |
 
 |
 
